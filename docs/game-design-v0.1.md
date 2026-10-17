@@ -1,11 +1,13 @@
 # Planet Conquest RTS — Initial Game Design
 
-**Working title:** Planet Conquest RTS (placeholder)
+**Working title:** Planet Conquest RTS (shipped as Galaxy Conquest)
 **Version:** 0.1 — concept / handoff draft
-**Status:** Early design; suitable for prototyping and iteration
+**Status:** Initial design draft. Current behavior is in the [README](../README.md).
 **Inspiration:** The fast, minimal, planet-to-planet real-time strategy of *Galcon*
 
 > **Design intent:** Preserve the speed and clarity of a Galcon-like game while adding strategic depth through three kinds of planetary production, vulnerable troop transportation, two layers of combat, and orbital blockades. Complexity should come from **what to produce, where to produce it, and where to send it**—not from commanding individual units in battle.
+
+> **Prototype status:** When this draft and the game disagree, follow the game. Orbital guns are defense platforms, and dropships are transports. Transports carry 10 troops, launch without a separate cost, and disappear on landing. Switching production discards partial progress. A blockade is hostile orbiting ships, no friendly orbiting ships, and no defense platforms; it blocks departures only. Traveling ships stop while they shoot hostile travelers within 48 units, then resume the same destination. Transports take that fire and keep flying. Orbiting ships, transports, and defense platforms do not join passing combat. Recall returns a dispatch to its departure worlds. There is no arbitrary mid-course retarget and no controller support. Send amounts are 25%, 50%, and 100%.
 
 ## 1. High-level concept
 
@@ -129,7 +131,7 @@ This is an explicit simplification intended to avoid transport logistics overwhe
 6. When it safely lands, its troops are added to the destination's ground forces or committed to ground combat.
 7. The dropship is **consumed / disappears on landing**; it does not have to be recalled or reassigned.
 
-In the first prototype, dropships do **not** require separate production, storage, loading orders, or return journeys. Their creation is **automatic and initially free** beyond having the troops to carry. This makes their cargo the scarce resource and their vulnerability the reason to protect them.
+The prototype does not require separate production, storage, or loading orders. Transports are consumed on landing, and they are not stockpiled afterward. Before landing, Recall turns surviving escorts and loaded transports back toward their own departure worlds. Creation stays automatic and free beyond having the troops to carry, so the cargo is the scarce resource and vulnerability is the reason to protect it.
 
 **Open balance question:** If troop transport proves too cheap, charge a small amount of planet production for launching troops or fold transport cost into ground troop production. Avoid adding transport stockpiles unless testing shows a compelling strategic benefit.
 
@@ -289,7 +291,7 @@ Useful instrumentation:
 
 ## 16. Open decisions for iteration
 
-These are **not** blockers for building a first prototype.
+These were not blockers for the first prototype. The prototype-status note at the top records the rows that have since shipped. The rest remain tuning questions.
 
 | Question | Initial recommendation | Reason to revisit |
 |---|---|---|
@@ -300,9 +302,9 @@ These are **not** blockers for building a first prototype.
 | Ships and transports arrival speeds? | Similar initially; avoid tiny arrival-order penalties | Could add escort/interception depth later |
 | Switching production progress? | Discard partial progress | May punish frequent switches too harshly |
 | Planet production specialization? | One type per planet at a time | Mixed production could reduce micromanagement if switching is excessive |
-| What constitutes orbital superiority? | No effective enemy orbital resistance | Needs a precise, readable combat rule |
+| What constitutes orbital superiority? | Blockade requires hostile orbiting ships, no friendly orbiting ships, and no defense platforms. Landings also wait while the surface owner still has defense platforms | Whether defense platforms should count as orbital control still needs playtesting |
 | New ship production during blockade? | Spawn into immediate combat | May create awkward or endless attrition |
-| Can players control ships in transit? | No mid-flight orders in MVP | Could become frustrating if travel times are long |
+| Can players control ships in transit? | Recall returns each dispatch to its departure worlds. No arbitrary mid-course retarget | A fuller retarget could become useful if travel times feel long |
 | Can blockading ships leave orbit? | Yes: use their orbital presence as an order source, with no fleet object | Test whether the blockade-ring control is discoverable and unobtrusive |
 | Strength / unit balance? | Tune in a playable simulation before adding more systems | Risks defense stalemate or one dominant unit choice |
 
