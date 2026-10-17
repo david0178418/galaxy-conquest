@@ -234,7 +234,7 @@ export class InvalidSaveError extends Error {
 	}
 }
 
-const gameSnapshotSchema = z.looseObject({
+export const gameSnapshotSchema = z.looseObject({
 	map: mapSchema,
 	scenario: scenarioSchema,
 	pace: z.union([z.literal(0.5), z.literal(1), z.literal(2)]),

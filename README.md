@@ -19,7 +19,21 @@ After the first online visit finishes caching, the game can reopen and play offl
 
 That Pages URL is also an X player card. On desktop web, opening the card loads this game in the post. Share the exact URL, including the trailing slash, and only after this version is deployed. X keeps the card it first fetched for a URL. The poster is [assets/x-card.jpg](assets/x-card.jpg), published as `x-card.jpg`. GitHub Pages does not send `X-Frame-Options`, which is what lets X frame the page. A host that denies framing will show only the poster.
 
-The title screen offers up to 10 local profiles. On first use, create **Player** or enter another name. Each profile has one ongoing conquest: **Continue** restores its saved map and game state paused, and **New game** starts over after confirmation. Rename keeps progress; deleting a profile requires confirmation and removes only that profile. Choose **Save** at any time or rely on periodic autosaves, including while paused. Save status and failures appear in the game header and game menu.
+## Campaign development preview
+
+Open the game with `?campaign=1` to enable **New campaign preview** and **Continue campaign** on the title screen. The ordinary entry remains skirmish while the campaign loop and presentation await owner acceptance. Each local profile has independent campaign and skirmish saves; replacing one leaves the other intact.
+
+The preview starts with two systems of three planets, one system per faction. Select your system, contribute planetary points to an expedition, and choose **End turn**. The rival commits at most one expedition per turn using half its available source points. Travel uses distance and configurable speed; arrivals resolve in order, with separate battles and no mid-battle reinforcements. Friendly arrivals replenish the most depleted destination planets first; surplus is discarded.
+
+At an encounter, edit your planetary defenses or divide your expedition among beachheads. Troops cost 1 point, ships 6, and defense platforms 5. All invasion forces enter from one off-screen edge based on travel direction, without a local source or initial recall order. Normal local dispatch and recall remain available. Combat production continues; the galaxy stays frozen. A faction loses an encounter when it has neither a planet nor a loaded troop transport. Remaining ships and empty transports are cleanup losses. There is no withdrawal or automatic battle time limit.
+
+Use **Return to galaxy** after an encounter to apply ownership and continue the turn. Tactical survivors and produced units do not become campaign points. Spending remains spent after defeat. At each completed galaxy turn, held planets grow capacity by 2% of baseline, capped at +20%, then recover 10% of current maximum. Capture halves accumulated development, including brief captures and recaptures; capture turns recover but do not grow. Absolute depletion persists even above a reduced maximum. Campaign victory requires the rival to have neither planets nor unresolved expeditions.
+
+Galaxy actions, valid allocation drafts, and ongoing battles save to the campaign slot. Continue restores battles paused without reseeding forces or spending twice. Rules are configurable in `src/campaign-state.ts`; setup costs are in `src/campaign-setup.ts`. The preview uses the existing browser storage limits and profile isolation.
+
+## Skirmish and local profiles
+
+The title screen offers up to 10 local profiles. On first use, create **Player** or enter another name. Each profile has one ongoing skirmish in addition to its separate campaign slot: **Continue** restores its saved map and game state paused, and **New game** starts over after confirmation. Rename keeps progress; deleting a profile requires confirmation and removes only that profile. Choose **Save** at any time or rely on periodic autosaves, including while paused. Save status and failures appear in the game header and game menu.
 
 Starting a new conquest or replacing the current map requires confirmation when it would replace progress. From **New game**, choose **Small** (12 worlds), **Medium** (18), or **Large** (30), inspect the preview, and use **Generate another map** to reroll it. **Start conquest** launches that exact layout with one world and three ships per side. Generated worlds have mirrored positions and resources for equal expansion opportunities, with at least 216 units between centers. **Restart map** replays the same layout.
 

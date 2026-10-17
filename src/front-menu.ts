@@ -36,6 +36,7 @@ const flowBuilder = ECSpresso.create().withScreens(function (screens) {
 	return screens
 		.add('title', { initialState })
 		.add('setup', { initialState })
+		.add('campaign', { initialState })
 		.add('playing', { initialState });
 });
 type FrontMenu = ReturnType<typeof flowBuilder.build>;
@@ -51,6 +52,11 @@ export const createFrontMenu = async function (options: {
 	onProfileChange: (profileId: string | null) => void;
 	onPlaying: () => void;
 	onMenu: () => void;
+	onCampaign: () => void;
+	campaign?: {
+		start: (profileId: string) => Promise<void>;
+		continue: (profileId: string) => Promise<void>;
+	};
 }): Promise<FrontMenu> {
 	const root = element('front-menu', HTMLDivElement);
 	const title = element('title-screen', HTMLElement);
@@ -87,6 +93,16 @@ export const createFrontMenu = async function (options: {
 	const profileName = element('profile-name', HTMLInputElement);
 	const createProfileButton = element('create-profile', HTMLButtonElement);
 	const continueButton = element('continue-conquest', HTMLButtonElement);
+	if (options.campaign) continueButton.textContent = 'Continue skirmish';
+	const campaignActions = document.createElement('div');
+	campaignActions.className = 'campaign-entry';
+	campaignActions.hidden = !options.campaign;
+	const campaignStart = document.createElement('button');
+	campaignStart.textContent = 'New campaign preview';
+	const campaignContinue = document.createElement('button');
+	campaignContinue.textContent = 'Continue campaign';
+	campaignActions.append(campaignStart, campaignContinue);
+	title.querySelector('.hero')?.append(campaignActions);
 	const profileSaveTime = element('profile-save-time', HTMLSpanElement);
 	const profileStatus = element('profile-status', HTMLParagraphElement);
 	const status = element('setup-status', HTMLDivElement);
@@ -131,6 +147,8 @@ export const createFrontMenu = async function (options: {
 			starting ||
 			!selected;
 		start.disabled = !profileState.available || !selected || starting;
+		campaignStart.disabled = !profileState.available || !selected || starting || profileState.busy;
+		campaignContinue.disabled = campaignStart.disabled || !selected?.hasCampaignSave;
 		for (const button of sizeButtons) button.disabled = starting;
 		element('reroll', HTMLButtonElement).disabled = starting;
 		element('back', HTMLButtonElement).disabled = starting;
@@ -276,6 +294,36 @@ export const createFrontMenu = async function (options: {
 		app.hidden = false;
 		options.onPlaying();
 	});
+	flow.onScreenEnter('campaign', function () {
+		closeProfileDialog();
+		root.hidden = true;
+		app.hidden = true;
+		options.onCampaign();
+	});
+	const openCampaign = async function (resume: boolean): Promise<void> {
+		const selected = profilePicker.getState().selectedProfile;
+		if (!selected || starting || !options.campaign) return;
+		starting = true;
+		renderProfiles();
+		let failure: string | undefined;
+		try {
+			await options.beforeProfileChange();
+			await profilePicker.reload();
+			const current = profilePicker.getState().selectedProfile;
+			if (!current) throw new Error('Choose a local profile first.');
+			if (!resume && current.hasCampaignSave && !window.confirm(`Replace ${current.name}'s saved campaign? Its skirmish save will be kept.`)) return;
+			if (resume) await options.campaign.continue(current.id);
+			else await options.campaign.start(current.id);
+		} catch (error) {
+			failure = error instanceof Error ? error.message : 'Could not open campaign.';
+		} finally {
+			starting = false;
+			renderProfiles();
+			if (failure) menuProfileStatus.textContent = failure;
+		}
+	};
+	campaignStart.addEventListener('click', function () { void openCampaign(false); });
+	campaignContinue.addEventListener('click', function () { void openCampaign(true); });
 	newGame.addEventListener('click', function () {
 		if (!newGame.disabled) void flow.setScreen('setup', {});
 	});

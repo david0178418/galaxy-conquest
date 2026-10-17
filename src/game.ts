@@ -92,6 +92,16 @@ export interface Match {
 	notices: Notice[];
 	engagements: Engagement[];
 }
+export interface CaptureEvent {
+	planetId: number;
+	previousOwner: Owner;
+	owner: Side;
+}
+export interface GameOptions {
+	evaluateWinner?: (world: Game) => Side | null;
+	onCapture?: (event: CaptureEvent, world: Game) => void;
+	seed?: (world: Game, map: StarMap) => void;
+}
 const economySystem = defineSystemRef('economy');
 const movementSystem = defineSystemRef('movement');
 const combatSystem = defineSystemRef('combat');
@@ -540,6 +550,7 @@ export const createGame = async function (
 	scenario: Scenario = 'skirmish',
 	map: StarMap = LAB_MAP,
 	snapshot?: GameSnapshot,
+	options: GameOptions = {},
 ): Promise<Game> {
 	const world = makeWorld();
 	const active = function (): boolean {
@@ -580,7 +591,7 @@ export const createGame = async function (
 		.inPhase('fixedUpdate')
 		.withRef(movementSystem)
 		.after(spatialIndexSystems.rebuild.fixedUpdate);
-	registerCombat(world, active, { notify, orbitalUnits, opponent, shipsAt, units })
+	registerCombat(world, active, { notify, orbitalUnits, opponent, shipsAt, units }, options.onCapture)
 		.inPhase('fixedUpdate')
 		.withRef(combatSystem)
 		.after(movementSystem);
@@ -593,13 +604,12 @@ export const createGame = async function (
 		.setProcess(function ({ ecs, dt, resources: { match } }) {
 			if (!active()) return;
 			pruneOrders(ecs);
-			const owners = new Set(
-				planets(ecs).map(function (e) {
-					return e.components.planet.owner;
-				}),
-			);
-			if (!owners.has('red')) match.winner = 'blue';
-			else if (!owners.has('blue')) match.winner = 'red';
+			if (options.evaluateWinner) match.winner = options.evaluateWinner(ecs);
+			else {
+				const owners = new Set(planets(ecs).map(function (e) { return e.components.planet.owner; }));
+				if (!owners.has('red')) match.winner = 'blue';
+				else if (!owners.has('blue')) match.winner = 'red';
+			}
 			match.aiClock += dt;
 			if (match.ai && match.aiClock >= CONFIG.aiInterval) {
 				match.aiClock = 0;
@@ -615,7 +625,10 @@ export const createGame = async function (
 		restoreSnapshot(world, snapshot);
 		return world;
 	}
-	seedFreshGame(world, map, spawnShip);
-	initializeLabScenario(world, scenario, { notify, planets, spawnShip });
+	if (options.seed) options.seed(world, map);
+	else {
+		seedFreshGame(world, map, spawnShip);
+		initializeLabScenario(world, scenario, { notify, planets, spawnShip });
+	}
 	return world;
 };

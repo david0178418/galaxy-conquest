@@ -2,6 +2,8 @@ import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase, IDBPTransaction } from 'idb';
 import { InvalidSaveError, parseConquestSave } from './save-state';
 import type { ConquestSave } from './save-state';
+import { parseCampaignSave } from './campaign-save';
+import type { CampaignSave } from './campaign-save';
 
 export const MAX_PROFILES = 10;
 const DATABASE_NAME = 'galaxy-conquest-local';
@@ -15,12 +17,15 @@ export interface ProfileSummary {
 	name: string;
 	hasSave: boolean;
 	savedAt: number | null;
+	hasCampaignSave: boolean;
+	campaignSavedAt: number | null;
 }
 
 export interface StoredProfile {
 	id: string;
 	name: string;
 	save?: unknown;
+	campaignSave?: unknown;
 }
 
 export class ProfileStorageError extends Error {
@@ -86,9 +91,12 @@ const parseStoredProfile = function (value: unknown): StoredProfile {
 		throw new ProfileStorageError(
 			'A local profile has invalid data. Its stored progress was left unchanged.',
 		);
-	return 'save' in value
-		? { id: value.id, name: value.name, save: value.save }
-		: { id: value.id, name: value.name };
+	return {
+		id: value.id,
+		name: value.name,
+		...('save' in value ? { save: value.save } : {}),
+		...('campaignSave' in value ? { campaignSave: value.campaignSave } : {}),
+	};
 };
 const getSavedAt = function (save: unknown): number | null {
 	if (!isRecord(save) || typeof save.savedAt !== 'number' || !Number.isFinite(save.savedAt))
@@ -101,6 +109,8 @@ const summarize = function (profile: StoredProfile): ProfileSummary {
 		name: profile.name,
 		hasSave: profile.save !== undefined,
 		savedAt: profile.save === undefined ? null : getSavedAt(profile.save),
+		hasCampaignSave: profile.campaignSave !== undefined,
+		campaignSavedAt: profile.campaignSave === undefined ? null : getSavedAt(profile.campaignSave),
 	};
 };
 const errorMessage = function (error: unknown): string {
@@ -177,6 +187,30 @@ export class ProfileRepository {
 		await this.enqueueWrite(save.profileId, function () {
 			return database.updateProfile(save.profileId, function (profile) {
 				return { ...profile, save };
+			});
+		});
+	}
+
+	async loadCampaignSave(id: string): Promise<CampaignSave | undefined> {
+		try {
+			const raw = await this.database.getProfile(id);
+			if (raw === undefined) throw new ProfileNotFoundError();
+			const profile = parseStoredProfile(raw);
+			if (profile.campaignSave === undefined) return undefined;
+			return parseCampaignSave(profile.campaignSave, id);
+		} catch (error) {
+			if (error instanceof InvalidSaveError || error instanceof ProfileNotFoundError)
+				throw error;
+			throw this.storageFailure('The saved campaign could not be read', error);
+		}
+	}
+
+	async saveCampaign(input: CampaignSave): Promise<void> {
+		const campaignSave = structuredClone(parseCampaignSave(input, input.profileId));
+		const database = this.database;
+		await this.enqueueWrite(campaignSave.profileId, function () {
+			return database.updateProfile(campaignSave.profileId, function (profile) {
+				return { ...profile, campaignSave };
 			});
 		});
 	}

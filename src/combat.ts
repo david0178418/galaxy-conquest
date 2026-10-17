@@ -1,7 +1,7 @@
 import type { SystemRegistrarOf } from 'ecspresso';
 import { CONFIG } from './config';
 import type { Side } from './config';
-import type { Engagement, Game } from './game';
+import type { Engagement, Game, GameOptions } from './game';
 
 // Return only scheduling capabilities so createGame owns the phase and edges.
 type ScheduledSystem = Pick<
@@ -180,6 +180,7 @@ export const registerCombat = function (
 	systems: SystemRegistrarOf<Game>,
 	active: () => boolean,
 	dependencies: CombatDependencies,
+	onCapture?: GameOptions['onCapture'],
 ): ScheduledSystem {
 	const { notify, orbitalUnits, opponent, shipsAt, units } = dependencies;
 	return systems
@@ -224,8 +225,10 @@ export const registerCombat = function (
 						continue;
 					if (p.owner === u.owner) p.troops += u.cargo;
 					else if (u.cargo > p.troops) {
+						const previousOwner = p.owner;
 						p.troops = u.cargo - p.troops;
 						p.owner = u.owner;
+						onCapture?.({ planetId: id, previousOwner, owner: u.owner }, ecs);
 						p.progress = 0;
 						p.production = 'troops';
 						const match = ecs.getResource('match');
