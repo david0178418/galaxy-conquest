@@ -6,6 +6,7 @@ interface MapInputDependencies {
 	getPlanetId: (target: EventTarget | null) => number | undefined;
 	selectPlanet: (id: number) => void;
 	dispatchPlanet: (id: number) => void;
+	moveTo?: (point: Point) => void;
 	panBy: (delta: Point) => void;
 	zoomAt: (anchor: Point, factor: number) => void;
 }
@@ -169,6 +170,10 @@ export const createMapInput = function (dependencies: MapInputDependencies): {
 	board.addEventListener('click', function (event) {
 		const id = dependencies.getPlanetId(event.target);
 		if (id !== undefined) dependencies.selectPlanet(id);
+		else {
+			const rect = board.getBoundingClientRect();
+			dependencies.moveTo?.({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+		}
 	}, { signal });
 	return {
 		cancel: cancelGesture,

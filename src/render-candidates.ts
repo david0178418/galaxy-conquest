@@ -43,7 +43,7 @@ export const createRenderCandidates = async function (): Promise<RenderCandidate
 		groups.clear(); byId.clear();
 	};
 	const select = function (world: Game, camera: Camera, width: number, height: number, showCargo: boolean, map?: { width: number; height: number }): RenderSelection {
-		const all = units(world);
+		const all = units(world).filter(function (entity) { return entity.components.unit.phase !== 'docked'; });
 		const viewport = worldViewport(camera, width, height);
 		// At fit the canvas already clips to the complete map. Indexing cannot
 		// remove visible work there; avoid paying its maintenance cost.

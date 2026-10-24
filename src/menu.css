@@ -432,6 +432,41 @@
 		color: #7f96a9;
 		margin: 13px 0 0;
 	}
+	.carrier-option {
+		margin-top: 16px;
+	}
+	.carrier-option label {
+		display: flex;
+		align-items: flex-start;
+		justify-content: flex-start;
+		gap: 10px;
+		padding: 12px;
+		border: 1px solid #2a3e50;
+		border-radius: 7px;
+		background: var(--menu-panel);
+		cursor: pointer;
+	}
+	.carrier-option input {
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
+		margin: 1px 0 0;
+		accent-color: var(--menu-accent);
+	}
+	.carrier-option strong,
+	.carrier-option small {
+		display: block;
+	}
+	.carrier-option strong {
+		font-size: 12px;
+		font-weight: 550;
+	}
+	.carrier-option small {
+		margin-top: 4px;
+		color: #849bad;
+		font-size: 10px;
+		line-height: 1.5;
+	}
 	.map-box {
 		position: relative;
 		border: 1px solid var(--menu-line);
@@ -590,6 +625,12 @@
 		}
 		.detail {
 			margin-top: 8px;
+		}
+		.carrier-option {
+			margin-top: 8px;
+		}
+		.carrier-option label {
+			padding: 8px 10px;
 		}
 		.setup-footer {
 			margin-top: 16px;

@@ -14,7 +14,81 @@ export interface StarMap {
 	readonly width: number;
 	readonly height: number;
 	readonly planets: readonly PlanetSeed[];
+	readonly carriers?: boolean;
 }
+
+export const CARRIER_CREW = 20;
+export const CARRIER_DOCKED_SHIPS = 3;
+export const CARRIER_PRODUCTION_MULTIPLIER = 0.25;
+export const CARRIER_RADIUS = 24;
+export const CARRIER_PLACEMENT_OFFSET = 140;
+const CARRIER_HIT_RADIUS = CARRIER_RADIUS + 32;
+
+const CARRIER_PLACEMENT_DIRECTIONS = Array.from(
+	{ length: 72 },
+	function (_, index) {
+		const angle = (index * Math.PI * 2) / 72;
+		return { x: Math.cos(angle), y: Math.sin(angle) };
+	},
+);
+
+export const carrierSeeds = function (map: StarMap): readonly PlanetSeed[] {
+	if (map.carriers !== true) return [];
+	const blueHome = map.planets.find(function (planet) {
+		return planet[4] === 'blue';
+	});
+	const redHome = map.planets.find(function (planet) {
+		return planet[4] === 'red';
+	});
+	if (!blueHome || !redHome) return [];
+	const isClear = function (x: number, y: number): boolean {
+		return (
+			x >= CARRIER_RADIUS &&
+			y >= CARRIER_RADIUS &&
+			x <= map.width - CARRIER_RADIUS &&
+			y <= map.height - CARRIER_RADIUS &&
+			map.planets.every(function (planet) {
+				const hitRadius = Math.max(27, planet[3] + 32);
+				return (
+					Math.hypot(x - planet[1], y - planet[2]) >=
+					CARRIER_HIT_RADIUS + hitRadius
+				);
+			})
+		);
+	};
+	const placement = CARRIER_PLACEMENT_DIRECTIONS.find(function (direction) {
+		const blueX = blueHome[1] + direction.x * CARRIER_PLACEMENT_OFFSET;
+		const blueY = blueHome[2] + direction.y * CARRIER_PLACEMENT_OFFSET;
+		const redX = redHome[1] - direction.x * CARRIER_PLACEMENT_OFFSET;
+		const redY = redHome[2] - direction.y * CARRIER_PLACEMENT_OFFSET;
+		return (
+			Math.hypot(blueX - redX, blueY - redY) >= 2 * CARRIER_RADIUS &&
+			isClear(blueX, blueY) &&
+			isClear(redX, redY)
+		);
+	});
+	if (!placement) return [];
+	return [
+		[
+			'Blue carrier',
+			blueHome[1] + placement.x * CARRIER_PLACEMENT_OFFSET,
+			blueHome[2] + placement.y * CARRIER_PLACEMENT_OFFSET,
+			CARRIER_RADIUS,
+			'blue',
+			CARRIER_CREW,
+			2.6 * CARRIER_PRODUCTION_MULTIPLIER,
+		],
+		[
+			'Red carrier',
+			redHome[1] - placement.x * CARRIER_PLACEMENT_OFFSET,
+			redHome[2] - placement.y * CARRIER_PLACEMENT_OFFSET,
+			CARRIER_RADIUS,
+			'red',
+			CARRIER_CREW,
+			2.6 * CARRIER_PRODUCTION_MULTIPLIER,
+		],
+	];
+};
 
 export const LAB_MAP: StarMap = {
 	...MAP,

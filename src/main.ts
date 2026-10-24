@@ -13,6 +13,10 @@ import type { DispatchFilter, Production, Scenario } from './config';
 import { captureConquestSave } from './game-save';
 import {
 	createGame,
+	dockedShips,
+	availableShips,
+	moveCarrier,
+	launchCarrierShips,
 	dispatch,
 	isBlockaded,
 	planets,
@@ -170,6 +174,7 @@ const savedStatus = function (savedAt: number): string {
 };
 const sameMap = function (left: StarMap, right: StarMap): boolean {
 	return (
+		Boolean(left.carriers) === Boolean(right.carriers) &&
 		left.width === right.width &&
 		left.height === right.height &&
 		left.planets.length === right.planets.length &&
@@ -309,7 +314,7 @@ const mountPlanets = function (): void {
 		components: { planet: p },
 	} of planets(world)) {
 		const button = document.createElement('button');
-		button.className = 'planet';
+		button.className = p.carrier ? 'planet carrier' : 'planet';
 		button.dataset.planet = p.name;
 		button.style.left = `${p.x}px`;
 		button.style.top = `${p.y}px`;
@@ -333,6 +338,18 @@ const mountPlanets = function (): void {
 		views.set(id, { button, count, orbit, mark, progress });
 	}
 };
+const launchCarrierButton = document.createElement('button');
+launchCarrierButton.textContent = 'Launch docked ships';
+launchCarrierButton.hidden = true;
+dispatchControls.append(launchCarrierButton);
+launchCarrierButton.addEventListener('click', function () {
+	const id = selected.length === 1 ? selected[0] : undefined;
+	if (id === undefined || busy) return;
+	const count = launchCarrierShips(world, id, fraction);
+	feedback(`${count} ships launched into local space`);
+	if (count > 0) queueAutosave();
+	refresh();
+});
 const refresh = function (): void {
 	if (diagnostics) diagnostics.measure('hud', refreshContent);
 	else refreshContent();
@@ -359,6 +376,10 @@ const refreshContent = function (): void {
 	} of all) {
 		const view = views.get(id);
 		if (!view) continue;
+		view.button.style.left = `${p.x}px`;
+		view.button.style.top = `${p.y}px`;
+		view.button.style.setProperty('--heading', `${p.carrier?.heading ?? 0}rad`);
+		const docked = dockedShips(world, id).length;
 		const blue = shipsAt(world, id, 'blue').length;
 		const red = shipsAt(world, id, 'red').length;
 		const guns = Math.ceil(p.guns);
@@ -373,7 +394,7 @@ const refreshContent = function (): void {
 		view.button.setAttribute('aria-pressed', String(highlighted));
 		view.button.setAttribute(
 			'aria-label',
-			`${p.name}, ${p.owner === 'blue' ? 'your' : p.owner === 'red' ? 'rival' : 'neutral'} planet, ${p.troops} troops, ${blue} your ships, ${red} rival ships, ${guns} defense platforms${blocked ? ', blockaded' : ''}`,
+			`${p.name}, ${p.owner === 'blue' ? 'your' : p.owner === 'red' ? 'rival' : 'neutral'} ${p.carrier ? 'carrier' : 'planet'}, ${docked} docked ships, ${p.troops} troops, ${blue} your ships, ${red} rival ships, ${guns} defense platforms${blocked ? ', blockaded' : ''}`,
 		);
 		view.count.textContent = String(p.troops);
 		view.orbit.replaceChildren();
@@ -387,6 +408,7 @@ const refreshContent = function (): void {
 			span.textContent = `◆${count} `;
 			view.orbit.append(span);
 		}
+		if (p.carrier) view.orbit.append(`▣${docked} docked${blue > 0 || red > 0 ? ' · external contact' : ''}${(p.owner === 'blue' ? red : blue) > 0 ? ' · docking blocked' : ''}`);
 		if (guns > 0) view.orbit.append(`✣${guns}`);
 		view.mark.textContent = p.owner === 'neutral' ? '' : icons[p.production];
 		view.progress.style.width = `${(p.progress / CONFIG.cost[p.production]) * 100}%`;
@@ -420,7 +442,7 @@ const refreshContent = function (): void {
 			: `${ownedSelected.reduce(function (sum, p) {
 					return sum + p.troops;
 				}, 0)} troops · ${selected.reduce(function (sum, id) {
-					return sum + shipsAt(world, id, 'blue').length;
+					return sum + availableShips(world, id, 'blue').length;
 				}, 0)} ships · ${Math.ceil(
 					ownedSelected.reduce(function (sum, p) {
 						return sum + p.guns;
@@ -436,7 +458,7 @@ const refreshContent = function (): void {
 			? `${(p.rate * CONFIG.productionRateMultiplier).toFixed(1)} work / sec`
 			: 'on selected worlds';
 	for (const button of productionButtons) {
-		button.disabled = ownedSelected.length === 0 || Boolean(match.winner);
+		button.disabled = ownedSelected.length === 0 || Boolean(match.winner) || (button.dataset.production === 'guns' && ownedSelected.some(function (p) { return Boolean(p.carrier); }));
 		button.setAttribute(
 			'aria-pressed',
 			String(
@@ -447,10 +469,16 @@ const refreshContent = function (): void {
 			),
 		);
 	}
+	launchCarrierButton.hidden = !p?.carrier || p.owner !== 'blue' || selected.length !== 1;
+	launchCarrierButton.disabled = Boolean(match.winner) || first === undefined || dockedShips(world, first, 'blue').length === 0;
+	if (p?.carrier && selected.length <= 1) {
+		selectionInfo.textContent = `${p.troops} crew · ${first === undefined ? 0 : dockedShips(world, first).length} docked ships · ${first === undefined ? 0 : shipsAt(world, first, 'blue').length + shipsAt(world, first, 'red').length} external ships${first !== undefined && shipsAt(world, first, p.owner === 'blue' ? 'red' : 'blue').length > 0 ? ` · docking blocked${p.owner === 'blue' ? '; launching allowed' : ''}` : ''}`;
+		dispatchInfo.textContent = 'Docked ships launch; platforms unavailable';
+	}
 	instruction.textContent = multi
 		? 'Tap or left-click sources · finish selection to send'
 		: selected.length
-			? 'Hold or right-click a destination to send'
+			? p?.carrier && p.owner === 'blue' && selected.length === 1 ? 'Click empty space to move · hold or right-click an entity to dispatch' : 'Hold or right-click a destination to send'
 			: 'Select a blue planet or orbital ring';
 	multiButton.setAttribute('aria-pressed', String(multi));
 	multiButton.textContent = multi ? '✓ Finish selection' : '＋ Multi-select';
@@ -573,6 +601,13 @@ const mapInput = createMapInput({
 	},
 	selectPlanet,
 	dispatchPlanet: sendToPlanet,
+	moveTo: function (point): void {
+		if (busy || multi || selected.length !== 1 || frontMenu.getCurrentScreen() !== 'playing') return;
+		const id = selected[0];
+		if (id === undefined) return;
+		const destination = { x: Math.max(0, Math.min(activeMap.width, (point.x - camera.x) / camera.scale)), y: Math.max(0, Math.min(activeMap.height, (point.y - camera.y) / camera.scale)) };
+		if (moveCarrier(world, id, destination)) { feedback('Carrier course set'); queueAutosave(); refresh(); }
+	},
 	panBy: function (delta): void {
 		camera = { ...camera, x: camera.x + delta.x, y: camera.y + delta.y };
 		applyCamera();
@@ -1029,6 +1064,24 @@ if (diagnosticsEnabled) {
 		},
 		report: function (): DiagnosticsReport | undefined { return diagnostics?.report(); },
 		reset: function (): void { diagnostics?.reset(); },
+		carrierPreview: async function (scenario: 'intercept' | 'blockade' | 'capture'): Promise<void> {
+			if (disposed || busy || !profileRepository) throw new Error('Carrier preview requires idle local storage');
+			if (!(await saveBeforeLeavingGame())) throw new Error('Current conquest could not be saved');
+			busy = true;
+			let replacement: Game | undefined;
+			try {
+				if (!baselineProfileId) baselineProfileId = (await profileRepository.createProfile('Carrier review')).id;
+				const { createCarrierPreview } = await import('./carrier-preview');
+				const preview = await createCarrierPreview(scenario);
+				replacement = preview.game;
+				const save = captureConquestSave(replacement, preview.map, 'skirmish', 1, baselineProfileId);
+				await profileRepository.saveProfile(save);
+				await profileRepository.setSelectedProfileId(baselineProfileId);
+				const game = replacement; replacement = undefined;
+				await installGame({ game, map: preview.map, scenario: 'skirmish', profileId: baselineProfileId, pace: 1, paused: true, hiddenPause: false, savedAt: save.savedAt });
+				await frontMenu.setScreen('playing', {});
+			} finally { await replacement?.dispose(); busy = false; }
+		},
 		baseline: async function (): Promise<void> {
 			if (disposed || busy || !profileRepository)
 				throw new Error('Baseline requires idle local storage');

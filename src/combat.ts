@@ -216,7 +216,7 @@ export const registerCombat = function (
 					id: unitId,
 					components: { unit: u },
 				} of orbitalUnits(ecs, id)) {
-					if (u.kind !== 'transport') continue;
+					if (u.kind !== 'transport' || u.hp <= 0) continue;
 					const enemy = opponent(u.owner);
 					if (
 						shipsAt(ecs, id, enemy).length > 0 ||
@@ -228,6 +228,20 @@ export const registerCombat = function (
 						const previousOwner = p.owner;
 						p.troops = u.cargo - p.troops;
 						p.owner = u.owner;
+					if (p.carrier) {
+						p.carrier.destination = null;
+						const transferred = new Set<number>();
+						for (const entry of units(ecs)) {
+							const stored = entry.components.unit;
+							if (stored.target === id && stored.phase === 'docked') { stored.owner = u.owner; transferred.add(entry.id); }
+						}
+						const book = ecs.getResource('orderBook');
+						for (const order of book.active) {
+							order.departures = order.departures.filter(function (d) { return !transferred.has(d.unitId); });
+							// Paused dispatch already reserves real units; detach old inventory control.
+							if (order.owner === previousOwner && order.state === 'pending') order.departures = order.departures.filter(function (d) { return d.source !== id; });
+						}
+					}
 						onCapture?.({ planetId: id, previousOwner, owner: u.owner }, ecs);
 						p.progress = 0;
 						p.production = 'troops';
@@ -246,6 +260,14 @@ export const registerCombat = function (
 					}
 					u.hp = 0;
 					ecs.commands.removeEntity(unitId);
+				}
+			}
+			for (const { id, components: { planet: p } } of queries.planets) {
+				if (!p.carrier || p.owner === 'neutral' || shipsAt(ecs, id, opponent(p.owner)).length > 0) continue;
+				for (const entry of shipsAt(ecs, id, p.owner)) {
+					entry.components.unit.phase = 'docked';
+					entry.components.unit.x = p.x;
+					entry.components.unit.y = p.y;
 				}
 			}
 			for (const entity of units(ecs))

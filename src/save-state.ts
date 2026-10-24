@@ -2,6 +2,7 @@ import * as z from 'zod/mini';
 import type { Owner, Production, Scenario, Side } from './config';
 import type {
 	Departure,
+	Carrier,
 	Match,
 	Notice,
 	Order,
@@ -10,6 +11,7 @@ import type {
 	Unit,
 } from './game';
 import type { StarMap, PlanetSeed } from './maps';
+import { carrierSeeds } from './maps';
 
 export const SAVE_SCHEMA_VERSION = 1;
 const MAX_SAVED_STOCK = 100_000;
@@ -75,12 +77,17 @@ const planetSeedSchema = z.tuple([
 const mapSchema = z.looseObject({
 	width: z.number().check(z.gt(0), z.lte(10000)),
 	height: z.number().check(z.gt(0), z.lte(10000)),
+	carriers: z.optional(z.boolean()),
 	planets: savedArray(planetSeedSchema).check(z.minLength(2), z.maxLength(100)),
 }).check(z.refine(function (map) {
 	return map.planets.every(function (seed) {
 		return seed[1] <= map.width && seed[2] <= map.height;
 	});
 })) satisfies z.ZodMiniType<StarMap>;
+export const carrierSchema = z.strictObject({
+	destination: z.nullable(z.strictObject({ x: nonnegativeNumber, y: nonnegativeNumber })),
+	heading: z.number(),
+}) satisfies z.ZodMiniType<Carrier>;
 const planetSchema = z.looseObject({
 	name: z.string(),
 	x: nonnegativeNumber,
@@ -92,6 +99,7 @@ const planetSchema = z.looseObject({
 	rate: rateSchema,
 	production: productionSchema,
 	progress: nonnegativeNumber.check(z.lt(MAX_SAVED_PRODUCTION_PROGRESS)),
+	carrier: z.optional(carrierSchema),
 }) satisfies z.ZodMiniType<Planet>;
 const unitSchema = z.looseObject({
 	owner: sideSchema,
@@ -99,7 +107,7 @@ const unitSchema = z.looseObject({
 	x: coordinateSchema,
 	y: coordinateSchema,
 	target: idSchema,
-	phase: z.enum(['travel', 'orbit']),
+	phase: z.enum(['travel', 'orbit', 'docked']),
 	hp: z.number().check(z.gt(0), z.lte(10000)),
 	cargo: safeInteger.check(z.lte(MAX_SAVED_CARGO)),
 	age: nonnegativeNumber,
@@ -125,6 +133,7 @@ const matchSchema = z.looseObject({
 	return match.firstCapture === null || match.firstCapture <= match.time;
 })) satisfies z.ZodMiniType<Omit<Match, 'engagements'>>;
 const departureSchema = z.looseObject({
+	phase: z.optional(z.enum(['orbit', 'docked'])),
 	unitId: idSchema,
 	source: idSchema,
 	x: coordinateSchema,
@@ -163,10 +172,15 @@ const hasUniqueIds = function (
 	return true;
 };
 const hasSnapshotIntegrity = function (value: GameSnapshot): boolean {
-	if (value.planets.length !== value.map.planets.length) return false;
+	const carriers = carrierSeeds(value.map);
+	if (value.map.carriers === true && carriers.length !== 2) return false;
+	if (value.planets.length !== value.map.planets.length + carriers.length) return false;
 	// filter() skips holes, as the original parser's narrowing pass did.
 	const planetRows = value.planets.filter(function () { return true; });
 	const unitRows = value.units.filter(function () { return true; });
+	if (planetRows.filter(function (entry) {
+		return entry.planet.carrier !== undefined;
+	}).length !== carriers.length) return false;
 	const allIds = new Set<number>();
 	if (!hasUniqueIds(planetRows, allIds) || !hasUniqueIds(unitRows, allIds)) return false;
 	const planetsByName = new Map(
@@ -178,10 +192,23 @@ const hasSnapshotIntegrity = function (value: GameSnapshot): boolean {
 		planetsByName.size !== planetRows.length ||
 		!value.map.planets.every(function (seed) {
 			const current = planetsByName.get(seed[0]);
-			return current !== undefined && sameSeedGeometry(current, seed);
+			return current !== undefined && current.carrier === undefined && sameSeedGeometry(current, seed);
 		})
 	)
 		return false;
+	if (!carriers.every(function (seed) {
+		const current = planetsByName.get(seed[0]);
+		if (!current?.carrier || current.name !== seed[0] ||
+			current.radius !== seed[3] || current.rate !== seed[6] ||
+			current.owner === 'neutral' || current.guns !== 0 || current.production === 'guns' ||
+			current.x > value.map.width || current.y > value.map.height) return false;
+		const destination = current.carrier.destination;
+		return destination === null ||
+			(destination.x <= value.map.width && destination.y <= value.map.height);
+	})) return false;
+	const planetsById = new Map(planetRows.map(function (entry) {
+		return [entry.id, entry.planet] as const;
+	}));
 	const planetIds = new Set(planetRows.map(function (entry) {
 		return entry.id;
 	}));
@@ -193,7 +220,12 @@ const hasSnapshotIntegrity = function (value: GameSnapshot): boolean {
 	}));
 	if (
 		unitRows.some(function (entry) {
-			return !planetIds.has(entry.unit.target);
+			const unit = entry.unit;
+			const host = planetsById.get(unit.target);
+			if (!host) return true;
+			return unit.phase === 'docked' &&
+				(unit.kind !== 'ship' || host.carrier === undefined || unit.owner !== host.owner ||
+					unit.x !== host.x || unit.y !== host.y);
 		})
 	)
 		return false;
@@ -217,6 +249,13 @@ const hasSnapshotIntegrity = function (value: GameSnapshot): boolean {
 				assignedUnits.add(departure.unitId);
 				const unit = unitsById.get(departure.unitId);
 				if (!unit) return true;
+				// Docked escorts retain recall membership while cargo is underway. Capture invalidates
+				// queued commands from a carrier's former owner, but launched units
+				// retain their order even when their source changes hands.
+				if (unit.phase === 'docked' && order.state === 'pending') return true;
+				const source = planetsById.get(departure.source);
+				if (order.state === 'pending' && source?.carrier && source.owner !== order.owner)
+					return true;
 				const expectedTarget =
 					order.state === 'returning' ? departure.source : order.target;
 				return unit.owner !== order.owner || unit.target !== expectedTarget;

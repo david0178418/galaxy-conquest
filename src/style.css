@@ -628,3 +628,8 @@ input {
 		bottom: 10px;
 	}
 }
+
+/* Carrier hull, with a fixed readable crew counter and moving heading. */
+.planet.carrier .surface { border-radius: 5px; clip-path: polygon(50% 0, 90% 25%, 90% 85%, 65% 100%, 35% 100%, 10% 85%, 10% 25%); transform: rotate(calc(var(--heading) + 1.5708rad)); background: linear-gradient(90deg, #172c42, var(--owner), #172c42); }
+.planet.carrier .orbit-count { white-space: nowrap; }
+.planet.carrier .name { font-weight: 700; }

@@ -1,6 +1,6 @@
 import type { Scenario } from './config';
 import type { Game } from './game';
-import type { StarMap } from './maps';
+import { carrierSeeds, CARRIER_DOCKED_SHIPS, type StarMap } from './maps';
 
 type ScenarioDependencies = Pick<
 	typeof import('./game'),
@@ -12,9 +12,11 @@ export const seedFreshGame = function (
 	map: StarMap,
 	spawnShip: ScenarioDependencies['spawnShip'],
 ): void {
-	for (const [name, x, y, radius, owner, troops, rate] of map.planets) {
+	for (const [name, x, y, radius, owner, troops, rate] of [...map.planets, ...carrierSeeds(map)]) {
+		const carrier = !map.planets.some(function (seed) { return seed[0] === name; });
 		const planet = world.spawn({
 			planet: {
+				...(carrier ? { carrier: { destination: null, heading: 0 } } : {}),
 				name,
 				x,
 				y,
@@ -28,7 +30,7 @@ export const seedFreshGame = function (
 			},
 		});
 		if (owner !== 'neutral')
-			for (let n = 0; n < 3; n++) spawnShip(world, planet.id, owner);
+			for (let n = 0; n < (carrier ? CARRIER_DOCKED_SHIPS : 3); n++) spawnShip(world, planet.id, owner);
 	}
 };
 

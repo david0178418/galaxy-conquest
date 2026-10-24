@@ -2,7 +2,7 @@ import type { Game } from './game';
 
 type AIDependencies = Pick<
 	typeof import('./game'),
-	'dispatch' | 'isBlockaded' | 'planets' | 'setProduction' | 'shipsAt' | 'units'
+	'dispatch' | 'isBlockaded' | 'planets' | 'setProduction' | 'shipsAt' | 'units' | 'availableShips' | 'dockedShips'
 >;
 type PlanetEntity = ReturnType<AIDependencies['planets']>[number];
 
@@ -51,7 +51,7 @@ const troopFraction = function (
 
 export const runAI = function (
 	world: Game,
-	{ dispatch, isBlockaded, planets, setProduction, shipsAt, units }: AIDependencies,
+	{ dispatch, isBlockaded, planets, setProduction, shipsAt, units, availableShips, dockedShips }: AIDependencies,
 ): void {
 	const all = planets(world);
 	const troopSources = new Set<number>();
@@ -158,6 +158,12 @@ export const runAI = function (
 	};
 
 	for (const source of redPlanets) {
+		if (source.components.planet.carrier && blueShips(source.id) > 0) {
+			troopSources.add(source.id);
+			for (const entry of dockedShips(world, source.id, 'red')) entry.components.unit.phase = 'orbit';
+			setProduction(world, [source.id], 'ships', 'red');
+			continue;
+		}
 		if (!canLaunch(source)) setProduction(world, [source.id], 'ships', 'red');
 	}
 
@@ -174,18 +180,18 @@ export const runAI = function (
 		const contributors = redPlanets
 			.filter(function (entity) {
 				return (
-					entity.id !== held.id && canLaunch(entity) && redShips(entity.id) > 0
+					entity.id !== held.id && canLaunch(entity) && availableShips(world, entity.id, 'red').length > 0
 				);
 			})
 			.sort(byDistance(held));
 		const available = contributors.reduce(function (sum, entity) {
-			return sum + redShips(entity.id);
+			return sum + availableShips(world, entity.id, 'red').length;
 		}, 0);
 		if (available < need) continue;
 		let remaining = need;
 		for (const contributor of contributors) {
 			if (remaining <= 0) break;
-			const have = redShips(contributor.id);
+			const have = availableShips(world, contributor.id, 'red').length;
 			const fraction = shipFraction(have, Math.min(have, remaining));
 			if (fraction === undefined) continue;
 			remaining -= dispatch(
@@ -303,7 +309,7 @@ export const runAI = function (
 		if (!target) continue;
 		const planet = source.components.planet;
 		const defender = target.components.planet;
-		const ships = redShips(source.id);
+		const ships = availableShips(world, source.id, 'red').length;
 		// Neutral platforms do not fire or block a landing, so they are not escorts.
 		const resistance =
 			(defender.owner === 'blue' ? defender.guns : 0) + blueShips(target.id);

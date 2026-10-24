@@ -1,6 +1,13 @@
 import ECSpresso from 'ecspresso';
 import { COLORS } from './config';
-import { generateMap, isMapSize, MAP_SIZES } from './maps';
+import {
+	carrierSeeds,
+	CARRIER_CREW,
+	CARRIER_DOCKED_SHIPS,
+	generateMap,
+	isMapSize,
+	MAP_SIZES,
+} from './maps';
 import type { MapSize, StarMap } from './maps';
 import { createProfilePicker } from './profile-picker';
 import type { ProfilePickerState } from './profile-picker';
@@ -23,10 +30,14 @@ const svgElement = function (
 		node.setAttribute(name, String(value));
 	return node;
 };
-const freshMap = function (size: MapSize): StarMap {
+const freshMap = function (
+	size: MapSize,
+	carriersEnabled = false,
+): StarMap {
 	const seed = crypto.getRandomValues(new Uint32Array(1))[0];
 	if (seed === undefined) throw new Error('Could not generate a map seed');
-	return generateMap(size, seed);
+	const map = generateMap(size, seed);
+	return carriersEnabled ? { ...map, carriers: true } : map;
 };
 
 const initialState = function (): Record<string, never> {
@@ -92,6 +103,7 @@ export const createFrontMenu = async function (options: {
 	const status = element('setup-status', HTMLDivElement);
 	const summary = element('summary', HTMLDivElement);
 	const detail = element('size-detail', HTMLParagraphElement);
+	const carrierToggle = element('carriers-toggle', HTMLInputElement);
 	const preview = document.getElementById('map-preview');
 	const stars = document.getElementById('stars');
 	if (!(preview instanceof SVGElement) || !(stars instanceof SVGElement))
@@ -100,6 +112,8 @@ export const createFrontMenu = async function (options: {
 		...root.querySelectorAll<HTMLButtonElement>('[data-size]'),
 	];
 	let size: MapSize = 'medium';
+	let carriersEnabled = false;
+	carrierToggle.checked = carriersEnabled;
 	let map = freshMap(size);
 	let starting = false;
 	let disposed = false;
@@ -132,6 +146,7 @@ export const createFrontMenu = async function (options: {
 			!selected;
 		start.disabled = !profileState.available || !selected || starting;
 		for (const button of sizeButtons) button.disabled = starting;
+		carrierToggle.disabled = starting;
 		element('reroll', HTMLButtonElement).disabled = starting;
 		element('back', HTMLButtonElement).disabled = starting;
 	};
@@ -180,10 +195,11 @@ export const createFrontMenu = async function (options: {
 		renderProfileControls(profilePicker.render());
 	};
 	const renderPreview = function (): void {
+		const carriers = carrierSeeds(map);
 		preview.setAttribute('viewBox', `0 0 ${map.width} ${map.height}`);
 		preview.setAttribute(
 			'aria-label',
-			`Generated ${size} map with ${map.planets.length} worlds, one starting world per side`,
+			`Generated ${size} map with ${map.planets.length} worlds${carriers.length > 0 ? ' and one carrier per side' : ''}, one starting world per side`,
 		);
 		preview.replaceChildren();
 		for (let i = 0; i < 100; i++)
@@ -226,13 +242,39 @@ export const createFrontMenu = async function (options: {
 			);
 			preview.append(node);
 		}
+		for (const [name, x, y, radius, owner] of carriers) {
+			const node = svgElement('g', { class: 'carrier-marker' });
+			const label = svgElement('title', {});
+			label.textContent = `${name} · ${CARRIER_CREW} crew · ${CARRIER_DOCKED_SHIPS} docked ships`;
+			node.append(label);
+			node.append(
+				svgElement('circle', {
+					cx: x,
+					cy: y,
+					r: radius,
+					fill: COLORS[owner],
+					'fill-opacity': 0.16,
+					stroke: COLORS[owner],
+					'stroke-dasharray': '5 4',
+					'stroke-width': 3,
+				}),
+				svgElement('polygon', {
+					points: `${x},${y - 10} ${x + 10},${y} ${x},${y + 10} ${x - 10},${y}`,
+					fill: COLORS[owner],
+					stroke: '#e8f7ff',
+					'stroke-width': 1.5,
+				}),
+			);
+			preview.append(node);
+		}
 		const count = document.createElement('strong');
 		count.textContent = `${map.planets.length} worlds`;
+		const hasCarriers = carriers.length > 0;
 		summary.replaceChildren(
 			count,
 			' · 1 rival',
 			document.createElement('br'),
-			'One starting world per side',
+			hasCarriers ? 'One world and carrier per side' : 'One starting world per side',
 		);
 		detail.textContent = MAP_SIZES[size].detail;
 		element('setup-title', HTMLHeadingElement).textContent = 'Choose your star system.';
@@ -291,6 +333,12 @@ export const createFrontMenu = async function (options: {
 		renderPreview();
 		void flow.setScreen('setup', {});
 	});
+	carrierToggle.addEventListener('change', function () {
+		if (starting) return;
+		carriersEnabled = carrierToggle.checked;
+		map = { ...map, carriers: carriersEnabled };
+		renderPreview();
+	});
 	element('back', HTMLButtonElement).addEventListener('click', function () {
 		if (!starting) void flow.setScreen('title', {});
 	});
@@ -303,13 +351,13 @@ export const createFrontMenu = async function (options: {
 			)
 				return;
 			size = button.dataset.size;
-			map = freshMap(size);
+			map = freshMap(size, carriersEnabled);
 			renderPreview();
 			status.textContent = `${MAP_SIZES[size].label} map generated: ${map.planets.length} worlds.`;
 		});
 	element('reroll', HTMLButtonElement).addEventListener('click', function () {
 		if (starting) return;
-		map = freshMap(size);
+		map = freshMap(size, carriersEnabled);
 		renderPreview();
 		status.textContent = 'New layout generated.';
 	});

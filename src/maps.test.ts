@@ -1,7 +1,17 @@
 import { expect, test } from 'bun:test';
 import { CONFIG } from './config';
 import { createGame, dispatch, planets, shipsAt } from './game';
-import { generateMap, MAP_SIZES } from './maps';
+import {
+	carrierSeeds,
+	CARRIER_CREW,
+	CARRIER_DOCKED_SHIPS,
+	CARRIER_PLACEMENT_OFFSET,
+	CARRIER_PRODUCTION_MULTIPLIER,
+	CARRIER_RADIUS,
+	generateMap,
+	LAB_MAP,
+	MAP_SIZES,
+} from './maps';
 import type { PlanetSeed } from './maps';
 
 for (const size of ['small', 'medium', 'large'] as const) {
@@ -122,4 +132,94 @@ test('seeds reproduce maps and rerolls vary the layout', function () {
 	expect(generateMap('medium', 8042).planets).not.toEqual(
 		generateMap('medium', 8041).planets,
 	);
+});
+
+test('carriers are opt-in and seed mirrored, clear starting placements without changing worlds', function () {
+	for (const size of ['small', 'medium', 'large'] as const) {
+		for (let seed = 0; seed < 200; seed++) {
+			const generated = generateMap(size, seed);
+			const map = { ...generated, carriers: true } as const;
+			const before = structuredClone(map.planets);
+			const seeds = carrierSeeds(map);
+			expect(seeds).toHaveLength(2);
+			expect(carrierSeeds(map)).toEqual(seeds);
+			expect(map.planets).toEqual(before);
+			expect(generated.planets).toHaveLength(MAP_SIZES[size].count);
+			const blueHome = map.planets.find(function (planet) {
+				return planet[4] === 'blue';
+			});
+			const redHome = map.planets.find(function (planet) {
+				return planet[4] === 'red';
+			});
+			const blueCarrier = seeds.find(function (carrier) {
+				return carrier[4] === 'blue';
+			});
+			const redCarrier = seeds.find(function (carrier) {
+				return carrier[4] === 'red';
+			});
+			if (!blueHome || !redHome || !blueCarrier || !redCarrier)
+				throw new Error('Missing a starting home or carrier');
+			expect(blueCarrier[0]).toBe('Blue carrier');
+			expect(redCarrier[0]).toBe('Red carrier');
+			for (const carrier of seeds) {
+				expect(carrier[3]).toBe(CARRIER_RADIUS);
+				expect(carrier[5]).toBe(CARRIER_CREW);
+				expect(carrier[6]).toBe(2.6 * CARRIER_PRODUCTION_MULTIPLIER);
+				expect(carrier[1]).toBeGreaterThanOrEqual(CARRIER_RADIUS);
+				expect(carrier[2]).toBeGreaterThanOrEqual(CARRIER_RADIUS);
+				expect(carrier[1]).toBeLessThanOrEqual(map.width - CARRIER_RADIUS);
+				expect(carrier[2]).toBeLessThanOrEqual(map.height - CARRIER_RADIUS);
+				for (const planet of map.planets) {
+					expect(
+						Math.hypot(carrier[1] - planet[1], carrier[2] - planet[2]),
+					).toBeGreaterThanOrEqual(
+						CARRIER_RADIUS +
+							32 +
+							Math.max(27, planet[3] + 32),
+					);
+				}
+			}
+			expect(
+				Math.hypot(blueCarrier[1] - blueHome[1], blueCarrier[2] - blueHome[2]),
+			).toBeCloseTo(CARRIER_PLACEMENT_OFFSET);
+			expect(
+				Math.hypot(redCarrier[1] - redHome[1], redCarrier[2] - redHome[2]),
+			).toBeCloseTo(CARRIER_PLACEMENT_OFFSET);
+			expect(
+				Math.hypot(blueCarrier[1] - redCarrier[1], blueCarrier[2] - redCarrier[2]),
+			).toBeGreaterThanOrEqual(2 * CARRIER_RADIUS);
+			expect(blueCarrier[1] - blueHome[1]).toBeCloseTo(
+				redHome[1] - redCarrier[1],
+			);
+			expect(blueCarrier[2] - blueHome[2]).toBeCloseTo(
+				redHome[2] - redCarrier[2],
+			);
+			expect(map.planets).toHaveLength(MAP_SIZES[size].count);
+		}
+	}
+	expect(carrierSeeds(generateMap('medium', 8041))).toEqual([]);
+	expect(carrierSeeds({ ...generateMap('medium', 8041), carriers: false })).toEqual(
+		[],
+	);
+	expect(CARRIER_DOCKED_SHIPS).toBe(3);
+});
+
+test('LAB_MAP gets one carrier per faction with clear selection targets', function () {
+	const map = { ...LAB_MAP, carriers: true } as const;
+	const seeds = carrierSeeds(map);
+	expect(seeds).toHaveLength(2);
+	expect(
+		seeds.map(function (carrier) {
+			return carrier[4];
+		}),
+	).toEqual(['blue', 'red']);
+	for (const carrier of seeds) {
+		expect(carrier[5]).toBe(CARRIER_CREW);
+		for (const planet of map.planets)
+			expect(
+				Math.hypot(carrier[1] - planet[1], carrier[2] - planet[2]),
+			).toBeGreaterThanOrEqual(
+				CARRIER_RADIUS + 32 + Math.max(27, planet[3] + 32),
+			);
+	}
 });

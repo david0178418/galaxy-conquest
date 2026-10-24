@@ -218,6 +218,10 @@ export const createPixiRenderer = async function (dependencies: RendererDependen
 		const match = world.getResource('match');
 		const zoom = camera.scale / fitScale;
 		for (const { id, components: { planet: p } } of planets(world)) {
+			if (p.carrier?.destination) {
+				routes.moveTo(p.x, p.y).lineTo(p.carrier.destination.x, p.carrier.destination.y).stroke({ color: COLORS[p.owner], alpha: 0.6, width: 1.5 / camera.scale });
+				routes.circle(p.carrier.destination.x, p.carrier.destination.y, 5 / camera.scale).stroke({ color: COLORS[p.owner], width: 1 / camera.scale });
+			}
 			routes.circle(p.x, p.y, p.radius + 20).stroke({ color: '#4d739517', width: 1 });
 			const platformCount = Math.max(0, Math.ceil(p.guns));
 			const existingPlatforms = platformViews.get(id) ?? [];

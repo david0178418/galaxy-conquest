@@ -25,7 +25,12 @@ import type {
 } from './config';
 import type { GameSnapshot } from './save-state';
 
+export interface Carrier {
+	destination: { x: number; y: number } | null;
+	heading: number;
+}
 export interface Planet {
+	carrier?: Carrier;
 	name: string;
 	x: number;
 	y: number;
@@ -43,12 +48,13 @@ export interface Unit {
 	x: number;
 	y: number;
 	target: number;
-	phase: 'travel' | 'orbit';
+	phase: 'travel' | 'orbit' | 'docked';
 	hp: number;
 	cargo: number;
 	age: number;
 }
 export interface Departure {
+	phase?: 'orbit' | 'docked';
 	unitId: number;
 	source: number;
 	x: number;
@@ -114,7 +120,7 @@ const spatialIndexPlugin = createSpatialIndexPlugin({
 type SpatialIndexConfig = NonNullable<typeof spatialIndexPlugin['_cfg']>;
 type GameConfig = WithResources<
 	WithComponents<SpatialIndexConfig, { planet: Planet; unit: Unit }>,
-	DiagnosticsResourceTypes & { match: Match; orderBook: OrderBook; diagnosticsLifetime: { dispose: () => void } }
+	DiagnosticsResourceTypes & { match: Match; orderBook: OrderBook; diagnosticsLifetime: { dispose: () => void }; mapBounds: { width: number; height: number } }
 >;
 export type Game = ECSpresso<GameConfig>;
 type PlanetEntity = FilteredEntity<GameConfig['components'], 'planet'>;
@@ -139,7 +145,7 @@ const syncUnitPosition = function (
 	}
 	world.addComponent(unitId, 'localTransform', localTransformAt(x, y));
 };
-const makeWorld = function (): Game {
+const makeWorld = function (map: StarMap): Game {
 	const match: Match = {
 		time: 0,
 		paused: false,
@@ -161,6 +167,7 @@ const makeWorld = function (): Game {
 		.withResource('diagnosticsLifetime', { dispose: function (): void {} })
 		.withComponentTypes<{ planet: Planet; unit: Unit }>()
 		.withResource('match', match)
+		.withResource('mapBounds', { width: map.width, height: map.height })
 		.withResource('orderBook', orderBook)
 		.withFixedTimestep(CONFIG.step)
 		.build();
@@ -239,12 +246,42 @@ export const shipsAt = function (
 		return entity.components.unit.kind === 'ship';
 	});
 };
+export const dockedShips = function (world: Game, host: number, side?: Side): UnitEntity[] {
+	return units(world).filter(function ({ components: { unit } }) {
+		return unit.target === host && unit.phase === 'docked' && unit.kind === 'ship' && unit.hp > 0 && (!side || unit.owner === side);
+	});
+};
+export const availableShips = function (world: Game, host: number, side: Side): UnitEntity[] {
+	return [...shipsAt(world, host, side), ...dockedShips(world, host, side)];
+};
+// Launch locally to contest a blockade without assigning a new destination.
+export const launchCarrierShips = function (world: Game, id: number, fraction = 1, side: Side = 'blue'): number {
+	const host = world.getComponent(id, 'planet');
+	if (!host?.carrier || host.owner !== side || world.getResource('match').winner || !Number.isFinite(fraction) || fraction <= 0 || fraction > 1) return 0;
+	const stored = dockedShips(world, id, side);
+	const launching = stored.slice(0, Math.ceil(stored.length * fraction));
+	for (const entity of launching) {
+		entity.components.unit.phase = 'orbit';
+		entity.components.unit.x = host.x;
+		entity.components.unit.y = host.y;
+	}
+	return launching.length;
+};
+export const moveCarrier = function (world: Game, id: number, destination: { x: number; y: number }, side: Side = 'blue'): boolean {
+	const p = world.getComponent(id, 'planet');
+	const bounds = world.getResource('mapBounds');
+	if (destination.x < 0 || destination.y < 0 || destination.x > bounds.width || destination.y > bounds.height) return false;
+	if (!p?.carrier || p.owner !== side || world.getResource('match').winner || !Number.isFinite(destination.x) || !Number.isFinite(destination.y)) return false;
+	p.carrier.destination = { ...destination };
+	return true;
+};
 export const unitPoint = function (
 	unit: Unit,
 	planet: Planet,
 	time: number,
 	id: number,
 ): UnitPoint {
+	if (unit.phase === 'docked') return { x: planet.x, y: planet.y, angle: planet.carrier?.heading ?? 0 };
 	if (unit.phase !== 'orbit') {
 		return {
 			x: unit.x,
@@ -299,7 +336,7 @@ export const spawnShip = function (
 			x: p.x,
 			y: p.y,
 			target: planetId,
-			phase: 'orbit',
+			phase: p.carrier && p.owner === owner ? 'docked' : 'orbit',
 			hp: CONFIG.shipHealth,
 			cargo: 0,
 			age: 0,
@@ -314,7 +351,7 @@ export const setProduction = function (
 ): void {
 	for (const id of ids) {
 		const p = world.getComponent(id, 'planet');
-		if (!p || p.owner !== side || p.production === production) continue;
+		if (!p || p.owner !== side || (p.carrier && production === 'guns') || p.production === production) continue;
 		p.production = production;
 		p.progress = 0;
 	}
@@ -341,12 +378,12 @@ export const dispatch = function (
 	for (const id of new Set(sources)) {
 		const p = world.getComponent(id, 'planet');
 		if (!p || id === target) continue;
-		if (p.owner === side && isBlockaded(world, id)) {
+		if (p.owner === side && !p.carrier && isBlockaded(world, id)) {
 			if (side === 'blue')
 				notify(world, `${p.name}: blockade prevents departure`, side);
 			continue;
 		}
-		const available = shipsAt(world, id, side);
+		const available = availableShips(world, id, side);
 		if (filter !== 'troops') {
 			for (const entity of available.slice(
 				0,
@@ -355,6 +392,7 @@ export const dispatch = function (
 				const unit = entity.components.unit;
 				departures.push({
 					unitId: entity.id,
+					phase: unit.phase === 'docked' ? 'docked' : 'orbit',
 					source: id,
 					x: unit.x,
 					y: unit.y,
@@ -491,16 +529,16 @@ export const cancelOrder = function (
 		const unit = entity.components.unit;
 		const source = world.getComponent(departure.source, 'planet');
 		if (!source) continue;
-		if (order.state === 'pending') {
+		if (order.state === 'pending' && (source.owner === side || unit.kind === 'ship')) {
 			if (unit.kind === 'transport') {
 				source.troops += unit.cargo;
 				world.removeEntity(entity.id);
 			} else {
 				Object.assign(unit, {
 					target: departure.source,
-					phase: 'orbit',
-					x: departure.x,
-					y: departure.y,
+					phase: source.carrier && source.owner === side && departure.phase === 'docked' ? 'docked' : 'orbit',
+					x: source.carrier ? source.x : departure.x,
+					y: source.carrier ? source.y : departure.y,
 					age: departure.age,
 				});
 				syncUnitPosition(world, entity.id, unit.x, unit.y);
@@ -543,6 +581,8 @@ const aiDependencies = {
 	planets,
 	setProduction,
 	shipsAt,
+	availableShips,
+	dockedShips,
 	units,
 };
 
@@ -552,7 +592,7 @@ export const createGame = async function (
 	snapshot?: GameSnapshot,
 	options: GameOptions = {},
 ): Promise<Game> {
-	const world = makeWorld();
+	const world = makeWorld(map);
 	const active = function (): boolean {
 		const m = world.getResource('match');
 		return !m.paused && !m.winner;
@@ -573,6 +613,10 @@ export const createGame = async function (
 				components: { planet: p },
 			} of queries.planets) {
 				if (p.owner === 'neutral') continue;
+				if (p.carrier) {
+					p.guns = 0;
+					if (p.production === 'guns') { p.production = 'troops'; p.progress = 0; }
+				}
 				p.progress +=
 					p.rate * CONFIG.productionRateMultiplier * dt;
 				const cost = CONFIG.cost[p.production];
